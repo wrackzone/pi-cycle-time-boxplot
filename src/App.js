@@ -4,38 +4,12 @@ Ext.define('CustomApp', {
 
     constructor: function(config) {
 
+        console.log("constructor");
+
         if (typeof(CustomAppConfig) !== 'undefined') {
             Ext.apply(config, CustomAppConfig);
         }
         this.callParent(arguments);
-
-        this._workspaceConfig = this.getContext().getWorkspace().WorkspaceConfiguration;
-
-        this._xAxisStrategies = {
-            'fiscalQuarter': new FiscalQuarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
-            'month': new Months(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
-            'storyPoints': new StoryPoints(),
-            // 'featureSize': new FeatureSize(),
-            'quarter': new Quarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone)
-        };
-
-        this._xAxisStrategy = this._xAxisStrategies[this.getSetting("ShowMonths")===true ? "month":"quarter"];
-
-        this._typeStrategy = new Feature(
-            this.getSetting("PortfolioItemType"),
-            this.getSetting("BeginState"),
-            this.getSetting("EndState"),
-            this.getSetting("CompletedState"));
-
-        Deft.Promise.all([
-            this._getPortfolioItemTypes(),
-            this._getPreliminaryEstimateValues(),
-            this._getPortfolioItemStates(),
-            this._getTISCSnapshots(),
-            this._getCompletedOids()
-        ]).then({
-            success: Ext.bind(this._onLoad, this)
-        });
     },
 
     _onLoad: function(loaded) {
@@ -129,6 +103,36 @@ Ext.define('CustomApp', {
     launch: function() {
         //Write app code here
         //API Docs: https://help.rallydev.com/apps/2.0/doc/
+        console.log("launch");
+
+        
+        this._workspaceConfig = this.getContext().getWorkspace().WorkspaceConfiguration;
+
+        this._xAxisStrategies = {
+            'fiscalQuarter': new FiscalQuarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
+            'month': new Months(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
+            'storyPoints': new StoryPoints(),
+            // 'featureSize': new FeatureSize(),
+            'quarter': new Quarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone)
+        };
+
+        this._xAxisStrategy = this._xAxisStrategies[this.getSetting("ShowMonths")===true ? "month":"quarter"];
+
+        this._typeStrategy = new Feature(
+            this.getSetting("PortfolioItemType"),
+            this.getSetting("BeginState"),
+            this.getSetting("EndState"),
+            this.getSetting("CompletedState"));
+
+        Deft.Promise.all([
+            this._getPortfolioItemTypes(),
+            this._getPreliminaryEstimateValues(),
+            this._getPortfolioItemStates(),
+            this._getTISCSnapshots(),
+            this._getCompletedOids()
+        ]).then({
+            success: Ext.bind(this._onLoad, this)
+        });
     },
 
     _getPortfolioItemTypes : function() {
@@ -152,6 +156,8 @@ Ext.define('CustomApp', {
 
     _getPortfolioItemStates : function() {
         var that = this;
+        var type = that.getSetting("PortfolioItemType");
+        console.log("looking for type",type);
 
         var deferred = new Deft.Deferred();
         Ext.create('Rally.data.WsapiDataStore', {
@@ -163,7 +169,7 @@ Ext.define('CustomApp', {
                 { 
                     property:"TypeDef.TypePath", 
                     operator:"contains", 
-                    value : that.getSetting("PortfolioItemType")
+                    value : type
                 }
             ],
             sorters: [
