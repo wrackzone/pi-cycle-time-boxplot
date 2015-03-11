@@ -151,6 +151,8 @@ Ext.define('CustomApp', {
     },
 
     _getPortfolioItemStates : function() {
+        var that = this;
+
         var deferred = new Deft.Deferred();
         Ext.create('Rally.data.WsapiDataStore', {
             autoLoad : true,
@@ -161,7 +163,7 @@ Ext.define('CustomApp', {
                 { 
                     property:"TypeDef.TypePath", 
                     operator:"contains", 
-                    value : this.getSetting("PortfolioItemType")
+                    value : that.getSetting("PortfolioItemType")
                 }
             ],
             sorters: [

@@ -394,6 +394,8 @@ function HierarchicalRequirement() {
     },
 
     _getPortfolioItemStates : function() {
+        var that = this;
+
         var deferred = new Deft.Deferred();
         Ext.create('Rally.data.WsapiDataStore', {
             autoLoad : true,
@@ -404,7 +406,7 @@ function HierarchicalRequirement() {
                 { 
                     property:"TypeDef.TypePath", 
                     operator:"contains", 
-                    value : this.getSetting("PortfolioItemType")
+                    value : that.getSetting("PortfolioItemType")
                 }
             ],
             sorters: [
