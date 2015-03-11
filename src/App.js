@@ -11,13 +11,11 @@ Ext.define('CustomApp', {
 
         this._workspaceConfig = this.getContext().getWorkspace().WorkspaceConfiguration;
 
-        console.log(this.getSetting("NumberPeriods"));
-
         this._xAxisStrategies = {
             'fiscalQuarter': new FiscalQuarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
             'month': new Months(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone),
             'storyPoints': new StoryPoints(),
-            'featureSize': new FeatureSize(),
+            // 'featureSize': new FeatureSize(),
             'quarter': new Quarters(this.getStartOn(), this.getEndBefore(), this._workspaceConfig.TimeZone)
         };
 
@@ -29,12 +27,10 @@ Ext.define('CustomApp', {
             this.getSetting("EndState"),
             this.getSetting("CompletedState"));
 
-
-        console.log(this._typeStrategy);
-
         Deft.Promise.all([
             this._getPortfolioItemTypes(),
             this._getPreliminaryEstimateValues(),
+            this._getPortfolioItemStates(),
             this._getTISCSnapshots(),
             this._getCompletedOids()
         ]).then({
@@ -44,9 +40,16 @@ Ext.define('CustomApp', {
 
     _onLoad: function(loaded) {
 
+        var that = this;
         console.log("loaded",loaded);
-        var snapshots = loaded[2];
-        var completedOids = loaded[3];
+
+        if (!this.validate(loaded))
+            return;
+
+        var snapshots = loaded[3];
+        var completedOids = loaded[4];
+
+        this._xAxisStrategies["featureSize"] = new FeatureSize(loaded[1]);
 
         var tiscResults = this._getTISCResults(snapshots);
 
@@ -58,18 +61,24 @@ Ext.define('CustomApp', {
             return this._xAxisStrategy.categorize(row);
         }, this);
 
-        var deriveFieldsOnOutput = Ext.Array.map([1,25, 50, 75,99], function(percentile) {
+        var getPreliminaryEstimateValue = Ext.bind(function(row) {
+            return that._xAxisStrategies["featureSize"].categorize(row);
+        })
+
+        var deriveFieldsOnOutput = Ext.Array.map(this.percentiles, function(percentile) {
             var p = Lumenize.functions.percentileCreator(percentile);
             return {
                 field: "P" + percentile,
                 f: function(row) {
-                    return p(row.hours_values);
+                    var v = p(row.hours_values);  
+                    return Math.round(v*100)/100;
                 }
             };
         });
 
         var cube = new OLAPCube({
             deriveFieldsOnInput: [
+                { field: "PreliminaryEstimateValue", f: getPreliminaryEstimateValue },
                 { field: "hours", f: convertTicksToHours },
                 { field: "category", f: getCategory }
             ],
@@ -79,31 +88,46 @@ Ext.define('CustomApp', {
             ],
             deriveFieldsOnOutput: deriveFieldsOnOutput,
             dimensions: [
-                { field: "category" }
+                { field: "category" },
+                { field: "PreliminaryEstimateValue" }
             ]
         });
 
         var tiscResultsFilteredByCompletion = Ext.Array.filter(tiscResults, function(result) {
             return !!completedOids[result.ObjectID];
         });
-        console.log("facts",tiscResultsFilteredByCompletion);
         cube.addFacts(tiscResultsFilteredByCompletion);
-
-        var rowValues = cube.getDimensionValues("category");
-
-        _.each(rowValues,function(rv) {
-                console.log(rv,cube.getCell({category:rv}))
-        })
-
         this._showChartData(cube);
-
     },
 
+    validate : function(loaded) {
+        var that = this;
+        var valid = true;
+        // validate type
+        var type = _.find(loaded[0],function(t) {
+            return t.TypePath === that.getSetting("PortfolioItemType");
+        });
+
+        if (!type) {
+            that.add({html:"Invalid type in app settings, should be similar to PortfolioItem/Feature"});
+            valid = false;
+        }
+        // validate states
+        _.each(["BeginState","EndState","CompletedState"],function(state) {
+            var stateValue = that.getSetting(state);
+            var checkValue = _.find(loaded[2],function(s) {
+                return s.Name === stateValue;
+            })
+            if (!(stateValue==="No Entry") && _.isUndefined(checkValue)) {
+                that.add({html:"Invalid state ("+state+") value:"+stateValue + " for this type"});
+                valid = false;
+            }
+        })
+        return valid;
+    },
 
     launch: function() {
-        
         //Write app code here
-
         //API Docs: https://help.rallydev.com/apps/2.0/doc/
     },
 
@@ -115,6 +139,37 @@ Ext.define('CustomApp', {
             model : "TypeDefinition",
             fetch : ['Name','ObjectID','TypePath'], 
             filters : [ { property:"Ordinal", operator:">=", value:0} ],
+            listeners : {
+                scope : this,
+                load : function(store, data) {
+                    var recs = _.map(data,function(d){return d.data;});
+                    deferred.resolve(recs);
+                }
+            }
+        });
+        return deferred.getPromise();
+    },
+
+    _getPortfolioItemStates : function() {
+        var deferred = new Deft.Deferred();
+        Ext.create('Rally.data.WsapiDataStore', {
+            autoLoad : true,
+            limit : "Infinity",
+            model : "State",
+            fetch : true, 
+            filters : [ // (TypeDef.TypePath contains "PortfolioItem/Feature")
+                { 
+                    property:"TypeDef.TypePath", 
+                    operator:"contains", 
+                    value : this.getSetting("PortfolioItemType")
+                }
+            ],
+            sorters: [
+                {
+                    property: 'OrderIndex',
+                    direction: 'ASC'
+                }
+            ],
             listeners : {
                 scope : this,
                 load : function(store, data) {
@@ -146,7 +201,6 @@ Ext.define('CustomApp', {
     },
 
     _getTISCSnapshots: function() {
-        // console.log("_getTISCSnapshots", this.getStartOn(), this.getEndBefore());
         var query = this._getProjectScopedQuery(
             Ext.merge({
                 '_ValidFrom': {
@@ -154,8 +208,6 @@ Ext.define('CustomApp', {
                     '$lt': this.getEndBefore()
                 }
             }, this._typeStrategy.progressPredicate()));
-        console.log("query:",query);
-
 
         var deferred = new Deft.Deferred();
         Ext.create('Rally.data.lookback.SnapshotStore', {
@@ -168,7 +220,6 @@ Ext.define('CustomApp', {
                     for (var i = 0, ii = store.getTotalCount(); i < ii; ++i) {
                         snapshots.push(store.getAt(i).data);
                     }
-                    // console.log("tisc",snapshots);
                     deferred.resolve(snapshots);
                 }
             },
@@ -201,7 +252,6 @@ Ext.define('CustomApp', {
                     store.each(function(model) {
                         completedOids[model.data.ObjectID] = true;
                     });
-                    // console.log("completed",completedOids);
                     deferred.resolve(completedOids);
                 }
             },
@@ -229,7 +279,7 @@ Ext.define('CustomApp', {
 
             //holidays: this._federalHolidays(),
 
-            trackLastValueForTheseFields: [this._xAxisStrategy.field]
+            trackLastValueForTheseFields: [this._xAxisStrategy.field,"PreliminaryEstimate"]
         };
 
         // store number of hours in a work day
@@ -250,6 +300,12 @@ Ext.define('CustomApp', {
         return results;
     },
 
+    getTitle : function() {
+
+        return "Time In Process [" + this.getSetting("BeginState") + "," + this.getSetting("EndState") + "]";
+
+    },
+
     _showChartData: function(cube) {
 
         var catField = _.first(cube.config.dimensions).field;
@@ -257,24 +313,22 @@ Ext.define('CustomApp', {
         var categories = cube.getDimensionValues(catField);
         var xvalues = cube.getDimensionValues(xField);
 
-        console.log("categories",_.first(cube.config.dimensions).field,categories);
 
-        var keys = ['P1','P25','P50','P75','P99']
+        // var keys =  ['P1','P25','P50','P75','P99']
+        var keys =  _.map(this.percentiles,function(p) { return "P"+p });
 
-        var series = _.map(categories,function(cat) {
+        var series = _.map(xvalues,function(xvalue) {
             return {
-                name : 'Series:' + cat,
-                data : _.map(xvalues,function(xvalue) {
-                    var cellKey = {};
-                    cellKey[catField] = cat;
-                    cellKey[xField] = xvalue;
-                    var v = cube.getCell(cellKey);
-                    return !_.isUndefined(v) ? _.map(keys,function(k) {return v[k];}) : null;
-                })
+                name : xvalue,
+                data :  _.map(categories,function(cat) {
+                            var cellKey = {};
+                            cellKey[catField] = cat;
+                            cellKey[xField] = xvalue;
+                            var v = cube.getCell(cellKey);
+                            return !_.isUndefined(v) ? _.map(keys,function(k) {return v[k];}) : null;
+                        })
             }
         });
-
-        console.log("series",series);
         
         var chart = this.down("#chart1");
         if (chart) chart.removeAll();
@@ -291,7 +345,7 @@ Ext.define('CustomApp', {
                     // zoomType: 'xy'
                 },
                 title: {
-                    text: 'Time in Process'
+                    text: this.getTitle()
                 },                        
                 xAxis: {
                     tickInterval : 1,
@@ -309,10 +363,10 @@ Ext.define('CustomApp', {
                         color: '#808080'
                     }]
                 }],
-                tooltip: {
-                    valueSuffix : ' days',
-                    shared: true
-                },
+                // tooltip: {
+                //     valueSuffix : ' days',
+                //     shared: true
+                // },
                 legend: {
                     align: 'center',
                     verticalAlign: 'bottom'
@@ -334,10 +388,10 @@ Ext.define('CustomApp', {
             NumberPeriods : 6,
             ShowMonths : true,
             PortfolioItemType : "PortfolioItem/Feature",
-            BeginState : null,
-            EndState : "Done",
-            CompletedState : "Done",
-            GroupByField : ""
+            BeginState : "No Entry",
+            EndState : "Accepted",
+            CompletedState : "Deployed",
+            GroupByField : "PreliminaryEstimate"
         }
     },
 	
@@ -386,7 +440,10 @@ Ext.define('CustomApp', {
         });
         return values;
 	},
-     items : [
+
+    percentiles : [1,25, 50, 75,99],
+
+    items : [
         {
             xtype: 'container',
             itemId: 'chart1',

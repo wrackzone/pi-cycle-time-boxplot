@@ -131,22 +131,26 @@ function StoryPoints() {
 //     };
 // }
 
-function FeatureSize() {
-    this.categories = ['Extra Small', 'Small', 'Medium', 'Large', 'Extra Large', 'Unestimated'];
-    this.label = 'Feature Size';
-    this.field = 'PreliminaryEstimate';
+function FeatureSize(preliminaryEstimateValues) {
 
-    var sizes = {
-        4484657773: 'Extra Small',
-        4484657774: 'Small',
-        4484657775: 'Medium',
-        4484657776: 'Large',
-        4484657777: 'Extra Large'
+    this.nameIt = function(value) {
+        return !_.isUndefined(value) ? value.Name + " (" + value.Value + ")" : "Unestimated";
     };
-
     this.categorize = function(value) {
-        return sizes[value.PreliminaryEstimate_lastValue] || 'Unestimated';
+        var v = _.find(this.values,function(val) { 
+            return val.ObjectID === value.PreliminaryEstimate_lastValue;
+        })
+        return v ? this.nameIt(v) : 'Unestimated';
     };
+
+    this.values = preliminaryEstimateValues;
+    var that = this;
+    this.categories = _.map(this.values,function(pev) {
+        return that.nameIt(pev);
+    });
+    this.label = 'Feature Size';
+    this.field = 'PreliminaryEstimateValue';
+
 }
 
 
@@ -185,7 +189,7 @@ function Feature(type,beginState,endState,completeState) {
             // Features in development and < 100 % done
             '_TypeHierarchy': this.typeHierarchy,
             'State': {
-                '$gte': this.beginState,
+                '$gte': (this.beginState === "No Entry") ? null : this.beginState,
                 '$lt': this.endState
             }
         };
