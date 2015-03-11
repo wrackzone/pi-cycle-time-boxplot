@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>pi-cycle-time-boxplot</title>
+
+    <script type="text/javascript" src="https://rally1.rallydev.com/apps/2.0/sdk.js"></script>
+    <script type="text/javascript" src="https://rally1.rallydev.com/apps/2.0/lib/analytics/analytics-all.js"></script>
+
+    <script type="text/javascript">
+        Rally.onReady(function () {
+                function Months(startOn,endBefore,timezone){for(var cursor=new Time(startOn).inGranularity(Time.MONTH),end=new Time(endBefore).inGranularity(Time.MONTH),categories=[];cursor.lessThanOrEqual(end);)categories.push(""+cursor),cursor=cursor.add(1);this.categories=categories,this.label="Months",this.field="_ValidTo",this.categorize=function(value){return""+new Time(value._ValidTo_lastValue,Time.MONTH,timezone).inGranularity(Time.MONTH)}}function Quarters(startOn,endBefore,timezone){for(var cursor=new Time(startOn).inGranularity(Time.QUARTER),end=new Time(endBefore).inGranularity(Time.QUARTER),categories=[];cursor.lessThanOrEqual(end);)categories.push(""+cursor),cursor=cursor.add(1);this.categories=categories,this.label="Quarters",this.field="_ValidTo",this.categorize=function(value){return""+new Time(value._ValidTo_lastValue,Time.QUARTER,timezone).inGranularity(Time.QUARTER)}}function FiscalQuarters(startOn,endBefore,timezone){this.label="Fiscal Quarters",this.field="_ValidTo",this.categorize=function(value){var validToTimeString=value._ValidTo_lastValue||value,calendarQuarter=new Time(validToTimeString,Time.QUARTER,timezone).inGranularity(Time.QUARTER),calendarQuarterStart=calendarQuarter.inGranularity(Time.MONTH),fiscalQuarterStart=calendarQuarterStart.add(1),validTo=new Time(validToTimeString,Time.MONTH,timezone).inGranularity(Time.MONTH),quarter;quarter=validTo.lessThan(fiscalQuarterStart)?calendarQuarter.add(-1):calendarQuarter;var year=""+(quarter.year+1);return"FY"+year.substring(2)+"Q"+quarter.quarter};for(var cursor=new Time(startOn).inGranularity(Time.QUARTER),end=new Time(endBefore).inGranularity(Time.QUARTER),categories=[];cursor.lessThanOrEqual(end);)categories.push(this.categorize(""+cursor)),cursor=cursor.add(1);this.categories=categories}function StoryPoints(){this.categories=["&lt; 1","2","3","5","8","&gt; 8"],this.label="Story Points",this.field="PlanEstimate",this.categorize=function(value){var p=value.PlanEstimate_lastValue;return 1>p?"&lt; 1":2>=p?"2":3>=p?"3":5>=p?"5":8>=p?"8":p>8?"&gt; 8":void 0}}function FeatureSize(){this.categories=["Extra Small","Small","Medium","Large","Extra Large","Unestimated"],this.label="Feature Size",this.field="PreliminaryEstimate";var sizes={4484657773:"Extra Small",4484657774:"Small",4484657775:"Medium",4484657776:"Large",4484657777:"Extra Large"};this.categorize=function(value){return sizes[value.PreliminaryEstimate_lastValue]||"Unestimated"}}function Feature(){var typeHierarchy="PortfolioItem/Feature";this.progressPredicate=function(){return{_TypeHierarchy:typeHierarchy,State:{$gte:"Prep",$lt:"In Dev"}}},this.completePredicate=function(){return{_TypeHierarchy:typeHierarchy,State:{$gte:"In Dev"}}}}function HierarchicalRequirement(){var typeHierarchy="HierarchicalRequirement";this.progressPredicate=function(){return{_TypeHierarchy:typeHierarchy,ScheduleState:{$gte:"In-Progress",$lt:"Accepted"},Children:null}},this.completePredicate=function(){return{_TypeHierarchy:typeHierarchy,ScheduleState:{$gte:"Accepted"},Children:null}}}var Lumenize=window.parent.Rally.data.lookback.Lumenize,OLAPCube=Lumenize.OLAPCube,Time=Lumenize.Time,TimeInStateCalculator=Lumenize.TimeInStateCalculator;
+                Ext.define("CustomApp",{extend:"Rally.app.App",componentCls:"app",constructor:function(config){"undefined"!=typeof CustomAppConfig&&Ext.apply(config,CustomAppConfig),this.callParent(arguments),this._workspaceConfig=this.getContext().getWorkspace().WorkspaceConfiguration,this._xAxisStrategies={fiscalQuarter:new FiscalQuarters(this.getStartOn(),this.getEndBefore(),this._workspaceConfig.TimeZone),month:new Months(this.getStartOn(),this.getEndBefore(),this._workspaceConfig.TimeZone),storyPoints:new StoryPoints,featureSize:new FeatureSize,quarter:new Quarters(this.getStartOn(),this.getEndBefore(),this._workspaceConfig.TimeZone)}},launch:function(){},config:{startOn:"2014-10",endBefore:""+new Time(new Date).inGranularity(Time.MONTH).add(3),xAxis:"month",type:"PortfolioItem/Feature",defaultSettings:{NumberPeriods:6,ShowMonths:!0,PortfolioItemType:"PortfolioItem/Feature",BeginState:"",EndState:"",CompletedState:"",GroupByField:""}},getSettingsFields:function(){var values=[{name:"NumberPeriods",xtype:"rallytextfield",label:"Number of time periods to report on eg. 6"},{name:"ShowMonths",xtype:"rallycheckboxfield",label:"True for months (otherwise quarters)"},{name:"PortfolioItemType",xtype:"rallytextfield",label:"Name of the type eg. PortfolioItem/Initiative"},{name:"BeginState",xtype:"rallytextfield",label:"Name of the beginning state the cycle time is calculated for"},{name:"EndState",xtype:"rallytextfield",label:"Name of the end state the cycle time is calculated for"},{name:"CompletedState",xtype:"rallytextfield",label:"Name of the state which signifies the item is completed and should be reported on"},{name:"GroupByField",xtype:"rallytextfield",label:"Field to group the results by eg. PreliminaryEstimate"}];return _.each(values,function(value){value.labelWidth=250,value.labelAlign="left"}),value}});
+
+            Rally.launchApp('CustomApp', {
+                name:"pi-cycle-time-boxplot",
+	            parentRepos:""
+            });
+
+        });
+    </script>
+
+
+    <style type="text/css">
+        
+    </style>
+</head>
+<body>
+</body>
+</html>
