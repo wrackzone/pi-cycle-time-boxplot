@@ -3,9 +3,6 @@ Ext.define('CustomApp', {
     componentCls: 'app',
 
     constructor: function(config) {
-
-        console.log("constructor");
-
         if (typeof(CustomAppConfig) !== 'undefined') {
             Ext.apply(config, CustomAppConfig);
         }
@@ -23,6 +20,16 @@ Ext.define('CustomApp', {
         var snapshots = loaded[3];
         var completedOids = loaded[4];
 
+        // create our strategy
+        var groupByFieldName = that.getSetting("GroupByField");
+        if (groupByFieldName !== "" && groupByFieldName!=="PreliminaryEstimate") {
+            var typedef = _.find(loaded[5],function(attr) {
+                return attr.Name === that.getSetting("GroupByField");
+            });
+            console.log("typedef",typedef)
+            this._xAxisStrategies["groupByField"] = new GroupValueField(typedef);
+        }
+
         this._xAxisStrategies["featureSize"] = new FeatureSize(loaded[1]);
 
         var tiscResults = this._getTISCResults(snapshots);
@@ -37,7 +44,11 @@ Ext.define('CustomApp', {
 
         var getPreliminaryEstimateValue = Ext.bind(function(row) {
             return that._xAxisStrategies["featureSize"].categorize(row);
-        })
+        });
+
+        var getGroupCategory = Ext.bind(function(row) {
+            return that._xAxisStrategies["groupByField"].categorize(row);
+        });
 
         var deriveFieldsOnOutput = Ext.Array.map(this.percentiles, function(percentile) {
             var p = Lumenize.functions.percentileCreator(percentile);
@@ -50,7 +61,7 @@ Ext.define('CustomApp', {
             };
         });
 
-        var cube = new OLAPCube({
+        var cubeConfig = {
             deriveFieldsOnInput: [
                 { field: "PreliminaryEstimateValue", f: getPreliminaryEstimateValue },
                 { field: "hours", f: convertTicksToHours },
@@ -63,14 +74,29 @@ Ext.define('CustomApp', {
             deriveFieldsOnOutput: deriveFieldsOnOutput,
             dimensions: [
                 { field: "category" },
-                { field: "PreliminaryEstimateValue" }
+                // { field: "PreliminaryEstimateValue" }
             ]
-        });
+        };
+        if (that.getSetting("GroupByField") !== "") {
+            if (that.getSetting("GroupByField")==="Preliminary Estimate") 
+                cubeConfig.dimensions.push({field: "PreliminaryEstimateValue" }); // that.getSetting("GroupByField")});
+            else {
+                cubeConfig.dimensions.push({ field: that._xAxisStrategies["groupByField"].label }); // that.getSetting("GroupByField")});                
+                cubeConfig.deriveFieldsOnInput.push( {
+                    field: that._xAxisStrategies["groupByField"].label,
+                    f : getGroupCategory
+                })
+            }
+        }
+
+        var cube = new OLAPCube(cubeConfig);
 
         var tiscResultsFilteredByCompletion = Ext.Array.filter(tiscResults, function(result) {
             return !!completedOids[result.ObjectID];
         });
+        console.log("trf",tiscResultsFilteredByCompletion);
         cube.addFacts(tiscResultsFilteredByCompletion);
+        console.log("cube",cube);
         this._showChartData(cube);
     },
 
@@ -81,7 +107,6 @@ Ext.define('CustomApp', {
         var type = _.find(loaded[0],function(t) {
             return t.TypePath === that.getSetting("PortfolioItemType");
         });
-
         if (!type) {
             that.add({html:"Invalid type in app settings, should be similar to PortfolioItem/Feature"});
             valid = false;
@@ -97,15 +122,22 @@ Ext.define('CustomApp', {
                 valid = false;
             }
         })
+
+        // validate group by field
+        var groupByField = that.getSetting("GroupByField");
+        var groupAttr = _.find(loaded[5],function(attr) {
+            return attr.Name === groupByField;
+        });
+        if (groupByField !== "" && _.isUndefined(groupAttr)) {
+                that.add({html:"Invalid Group By Field (" + groupByField + ")"});
+                valid = false;
+        }
+
         return valid;
     },
 
     launch: function() {
-        //Write app code here
-        //API Docs: https://help.rallydev.com/apps/2.0/doc/
-        console.log("launch");
 
-        
         this._workspaceConfig = this.getContext().getWorkspace().WorkspaceConfiguration;
 
         this._xAxisStrategies = {
@@ -129,7 +161,8 @@ Ext.define('CustomApp', {
             this._getPreliminaryEstimateValues(),
             this._getPortfolioItemStates(),
             this._getTISCSnapshots(),
-            this._getCompletedOids()
+            this._getCompletedOids(),
+            this._getPortfolioItemAttributes()
         ]).then({
             success: Ext.bind(this._onLoad, this)
         });
@@ -141,7 +174,7 @@ Ext.define('CustomApp', {
             autoLoad : true,
             limit : "Infinity",
             model : "TypeDefinition",
-            fetch : ['Name','ObjectID','TypePath'], 
+            fetch : ['Name','ObjectID','TypePath','Attributes'], 
             filters : [ { property:"Ordinal", operator:">=", value:0} ],
             listeners : {
                 scope : this,
@@ -154,10 +187,44 @@ Ext.define('CustomApp', {
         return deferred.getPromise();
     },
 
+    _getPortfolioItemAttributes : function() {
+
+         var that = this;
+        var type = that.getSetting("PortfolioItemType");
+
+        var deferred = new Deft.Deferred();
+        Ext.create('Rally.data.WsapiDataStore', {
+            autoLoad : true,
+            limit : "Infinity",
+            model : "TypeDefinition",
+            fetch : ["Attributes"], 
+            filters : [ // (TypeDef.TypePath contains "PortfolioItem/Feature")
+                { 
+                    property:"TypePath", 
+                    operator:"contains", 
+                    value : type
+                }
+            ],
+            listeners : {
+                scope : this,
+                load : function(store, data) {
+                    _.first(data).getCollection('Attributes').load({
+                        fetch: ['Name', 'RealAttributeType','Type','ElementName'],
+                        callback: function(records, operation, success) {
+                            var recs = _.map(records,function(d){return d.data;});
+                            deferred.resolve(recs);
+                        }
+                    });
+                }
+            }
+        });
+        return deferred.getPromise();
+
+    },
+
     _getPortfolioItemStates : function() {
         var that = this;
         var type = that.getSetting("PortfolioItemType");
-        console.log("looking for type",type);
 
         var deferred = new Deft.Deferred();
         Ext.create('Rally.data.WsapiDataStore', {
@@ -231,17 +298,13 @@ Ext.define('CustomApp', {
                     deferred.resolve(snapshots);
                 }
             },
-            fetch: ['ObjectID', '_ValidTo', '_ValidFrom','PreliminaryEstimate','LeafStoryPlanEstimateTotal'].concat(this._xAxisStrategy.field),
+            fetch: ['ObjectID', '_ValidTo', '_ValidFrom','PreliminaryEstimate','LeafStoryPlanEstimateTotal','c_LOB'].concat(this._xAxisStrategy.field),
             find: query
         });
         return deferred.getPromise();
     },
 
     _getProjectScopedQuery: function(query) {
-
-        // return query;
-
-        //TODO - support scope up/down and all that cool stuff
         return Ext.merge({
             //'_ProjectHierarchy': Number((!_.isUndefined(__PROJECT_OID__) ? __PROJECT_OID__ : this.getContext().getProject().ObjectID) 
             '_ProjectHierarchy': { "$in" : [Number(this.getContext().getProject().ObjectID)] }
@@ -284,10 +347,7 @@ Ext.define('CustomApp', {
             // assume 9-5
             workDayStartOn: {hour: 9, minute: 0},
             workDayEndBefore: {hour: 17, minute: 0},
-
-            //holidays: this._federalHolidays(),
-
-            trackLastValueForTheseFields: [this._xAxisStrategy.field,"PreliminaryEstimate"]
+            trackLastValueForTheseFields: [this._xAxisStrategy.field,"_ValidFrom",this._xAxisStrategies["groupByField"].field]
         };
 
         // store number of hours in a work day
@@ -309,35 +369,61 @@ Ext.define('CustomApp', {
     },
 
     getTitle : function() {
-
-        return "Time In Process [" + this.getSetting("BeginState") + "," + this.getSetting("EndState") + "]";
-
+        return "Time In Process [" + this.getSetting("BeginState") 
+            + "," + this.getSetting("EndState") 
+            + "]";
     },
 
     _showChartData: function(cube) {
 
+        var that = this;
+        
+        var makeKey = function( catField, cat, xField, xValue ) {
+            var obj = {};
+            if (!_.isNull(cat)) obj[catField] = cat;
+            if (!_.isNull(xValue)) obj[xField] = xValue;
+            return obj;
+        };
+
+        var makePoint = function( cube, key ) {
+            var keys =  _.map(that.percentiles,function(p) { return "P"+p });
+            var v = cube.getCell(key);
+            if (_.isUndefined(v)) 
+                return null
+            var dataObj = _.zipObject(
+                ["low","q1","median","q3","high"],
+                _.map(keys,function(k) { return v[k];})
+            );
+            dataObj._count = v._count;
+            return dataObj;
+        };
+
         var catField = _.first(cube.config.dimensions).field;
         var xField = _.last(cube.config.dimensions).field;
         var categories = cube.getDimensionValues(catField);
-        var xvalues = cube.getDimensionValues(xField);
+        var xvalues = cube.config.dimensions.length > 1 ? cube.getDimensionValues(xField) : [];
 
-
-        // var keys =  ['P1','P25','P50','P75','P99']
-        var keys =  _.map(this.percentiles,function(p) { return "P"+p });
-
-        var series = _.map(xvalues,function(xvalue) {
-            return {
-                name : xvalue,
+        var series = null;
+        if ( cube.config.dimensions.length > 1 ) {
+            series = _.map(xvalues,function(xvalue) {
+                return {
+                    name : xvalue,
+                    data :  _.map(categories,function(cat) {
+                            return makePoint(cube,makeKey(catField,cat,xField,xvalue))
+                    }),
+                    tooltip : { headerFormat : '{point.point._count} records<br/>' }
+                }
+            });
+        } else {
+            series = [{
+                name : catField,
                 data :  _.map(categories,function(cat) {
-                            var cellKey = {};
-                            cellKey[catField] = cat;
-                            cellKey[xField] = xvalue;
-                            var v = cube.getCell(cellKey);
-                            return !_.isUndefined(v) ? _.map(keys,function(k) {return v[k];}) : null;
-                        })
-            }
-        });
-        
+                            return makePoint(cube,makeKey(catField,cat,null,null))
+                }),
+                tooltip : { headerFormat : '{point.point._count} records<br/>' }
+            }]
+        }
+
         var chart = this.down("#chart1");
         if (chart) chart.removeAll();
         
@@ -349,8 +435,7 @@ Ext.define('CustomApp', {
             },
             chartConfig : {
                 chart: {
-                    type: 'boxplot'
-                    // zoomType: 'xy'
+                    type: 'boxplot',
                 },
                 title: {
                     text: this.getTitle()
@@ -371,10 +456,6 @@ Ext.define('CustomApp', {
                         color: '#808080'
                     }]
                 }],
-                // tooltip: {
-                //     valueSuffix : ' days',
-                //     shared: true
-                // },
                 legend: {
                     align: 'center',
                     verticalAlign: 'bottom'
@@ -396,10 +477,11 @@ Ext.define('CustomApp', {
             NumberPeriods : 6,
             ShowMonths : true,
             PortfolioItemType : "PortfolioItem/Feature",
-            BeginState : "No Entry",
-            EndState : "Accepted",
+            BeginState : "Prioritized",
+            EndState : "Deployed",
             CompletedState : "Deployed",
-            GroupByField : "PreliminaryEstimate"
+            GroupByField : "LOB"
+            // GroupByField : ""
         }
     },
 	
@@ -450,7 +532,7 @@ Ext.define('CustomApp', {
 	},
 
     percentiles : [1,25, 50, 75,99],
-
+    
     items : [
         {
             xtype: 'container',

@@ -6,6 +6,7 @@ var Lumenize = window.parent.Rally.data.lookback.Lumenize,
     TimeInStateCalculator = Lumenize.TimeInStateCalculator;
 
 function Months(startOn, endBefore, timezone) {
+    console.log(startOn,endBefore,timezone);
     var cursor = new Time(startOn).inGranularity(Time.MONTH),
         end = new Time(endBefore).inGranularity(Time.MONTH),
         categories = [];
@@ -14,14 +15,14 @@ function Months(startOn, endBefore, timezone) {
         categories.push(cursor.toString());
         cursor = cursor.add(1);
     }
-
     this.categories = categories;
     this.label = 'Months';
     this.field = '_ValidTo';
 
     this.categorize = function(value) {
-        
-        return new Time(value._ValidTo_lastValue, Time.MONTH, timezone).inGranularity(Time.MONTH).toString();
+
+        // return new Time(value._ValidTo_lastValue, Time.MONTH, timezone).inGranularity(Time.MONTH).toString();
+        return new Time(value._ValidFrom_lastValue, Time.MONTH, timezone).inGranularity(Time.MONTH).toString();
     };
 }
 
@@ -113,24 +114,6 @@ function StoryPoints() {
     };
 }
 
-// function FeatureSize() {
-//     this.categories = ['Extra Small', 'Small', 'Medium', 'Large', 'Extra Large', 'Unestimated'];
-//     this.label = 'Feature Size';
-//     this.field = 'PreliminaryEstimate';
-
-//     var sizes = {
-//         4484657773: 'Extra Small',
-//         4484657774: 'Small',
-//         4484657775: 'Medium',
-//         4484657776: 'Large',
-//         4484657777: 'Extra Large'
-//     };
-
-//     this.categorize = function(value) {
-//         return sizes[value.PreliminaryEstimate_lastValue] || 'Unestimated';
-//     };
-// }
-
 function FeatureSize(preliminaryEstimateValues) {
 
     this.nameIt = function(value) {
@@ -153,29 +136,17 @@ function FeatureSize(preliminaryEstimateValues) {
 
 }
 
-
-// function Feature() {
-//     var typeHierarchy = 'PortfolioItem/Feature';
-//     this.progressPredicate = function() {
-//         return {
-//             // Features in development and < 100 % done
-//             '_TypeHierarchy': typeHierarchy,
-//             'State': {
-//                 '$gte': 'Prep',
-//                 '$lt': 'In Dev'
-//             }
-//         };
-//     };
-//     this.completePredicate = function() {
-//         return {
-//             // Features not in development anymore or >= 100% done
-//             '_TypeHierarchy': typeHierarchy,
-//             'State': {
-//                 '$gte': 'In Dev'
-//             }
-//         };
-//     };
-// }
+function GroupValueField(typedef) {
+    var that = this;
+    that.typedef = typedef;
+    that.label = that.typedef.Name;
+    that.field = that.typedef.ElementName;
+    this.categorize = function(value) {
+        // console.log("value:",value,that.field);
+        // return value[that.field];
+        return value[that.field+"_lastValue"];
+    };
+}
 
 function Feature(type,beginState,endState,completeState) {
     // var typeHierarchy = 'PortfolioItem/Feature';
@@ -205,7 +176,6 @@ function Feature(type,beginState,endState,completeState) {
         };
     };
 }
-
 
 function HierarchicalRequirement() {
     var typeHierarchy = 'HierarchicalRequirement';
